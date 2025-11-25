@@ -1,0 +1,214 @@
+version: '3.8'
+
+# 此 docker-compose 配置用於在已有 MySQL 5.7、Nginx、Redis 的生產環境中執行 HuLa 後端服務
+# 
+# 前置條件：
+#   - MySQL 5.7 已運行（或在其他主機上）
+#   - Redis 已運行
+#   - Nginx 已配置並指向此後端服務
+#
+# 使用方式：
+#   docker-compose -f docker-compose.backend.yml up -d
+#
+# 注意：
+#   - 請根據實際環境修改 environment 中的配置參數
+#   - SERVICE_URL 應指向實際的後端服務地址
+#   - DATABASE_URL 應根據你的 MySQL 服務修改
+
+services:
+  hula-backend:
+    # 構建後端服務鏡像
+    build:
+      context: .
+      dockerfile: src-tauri/Dockerfile
+      args:
+        - RUST_PROFILE=release
+        - NODE_VERSION=22
+    
+    container_name: hula-backend
+    
+    # 重啟策略
+    restart: unless-stopped
+    
+    # 端口映射
+    ports:
+      # REST API & WebSocket 端口
+      - "8080:8080"
+      # 可選：健康檢查或管理端口
+      - "9090:9090"
+    
+    # 環境變量
+    environment:
+      # Rust 後端配置
+      RUST_LOG: info
+      NODE_ENV: production
+      
+      # 資料庫連接
+      # 根據你的實際 MySQL 服務修改
+      # 如果 MySQL 在同一 Docker 網絡且容器名稱為 mysql：
+      DATABASE_URL: mysql://hula_user:hula_password@mysql:3306/hula_db
+      # 如果 MySQL 在本地或另一主機：
+      # DATABASE_URL: mysql://hula_user:hula_password@host.docker.internal:3306/hula_db
+      
+      # Redis 連接
+      REDIS_URL: redis://:@redis:6379/0
+      # 或如果 Redis 在本地：
+      # REDIS_URL: redis://:@host.docker.internal:6379/0
+      
+      # 後端服務配置
+      SERVICE_HOST: 0.0.0.0
+      SERVICE_PORT: 8080
+      SERVICE_URL: http://localhost:8080
+      
+      # WebSocket 配置
+      WS_URL: ws://localhost:8080/ws
+      
+      # 其他可選配置
+      LOG_LEVEL: INFO
+      WORKERS: 4
+      TIMEOUT: 30
+      
+      # 安全配置（可選）
+      CORS_ORIGINS: "http://localhost:5173,http://localhost:3000"
+      JWT_SECRET: your-secret-key-change-me
+    
+    # 卷掛載
+    volumes:
+      # 日誌目錄
+      - ./logs:/app/logs
+      
+      # 數據持久化目錄（如果需要）
+      - ./data:/app/data
+      
+      # 配置文件（如果需要）
+      # - ./config:/app/config
+    
+    # 網絡配置
+    networks:
+      - hula-network
+    
+    # 依賴項（確保 MySQL 和 Redis 先啟動）
+    depends_on:
+      - mysql
+      - redis
+    
+    # 健康檢查
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    
+    # 資源限制（可選）
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '1'
+          memory: 1G
+    
+    # 日誌配置
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # MySQL 5.7 服務（如果尚未運行）
+  # 如果你已有現成的 MySQL，可以註解掉此服務，並修改環境變量中的 DATABASE_URL
+  mysql:
+    image: mysql:5.7
+    container_name: hula-mysql
+    restart: unless-stopped
+    
+    environment:
+      MYSQL_ROOT_PASSWORD: root_password
+      MYSQL_DATABASE: hula_db
+      MYSQL_USER: hula_user
+      MYSQL_PASSWORD: hula_password
+    
+    ports:
+      - "3306:3306"
+    
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./sql-init:/docker-entrypoint-initdb.d
+    
+    networks:
+      - hula-network
+    
+    # 健康檢查
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis 服務（如果尚未運行）
+  # 如果你已有現成的 Redis，可以註解掉此服務
+  redis:
+    image: redis:7-alpine
+    container_name: hula-redis
+    restart: unless-stopped
+    
+    ports:
+      - "6379:6379"
+    
+    volumes:
+      - redis-data:/data
+    
+    networks:
+      - hula-network
+    
+    # Redis 配置選項
+    command: redis-server --appendonly yes --requirepass ""
+    
+    # 健康檢查
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Nginx 反向代理（如果需要）
+  # 如果你已有現成的 Nginx，可以註解掉此服務
+  nginx:
+    image: nginx:alpine
+    container_name: hula-nginx
+    restart: unless-stopped
+    
+    ports:
+      - "80:80"
+      - "443:443"
+    
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl:/etc/nginx/ssl:ro
+      - ./nginx-logs:/var/log/nginx
+    
+    networks:
+      - hula-network
+    
+    depends_on:
+      - hula-backend
+    
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+# 卷定義
+volumes:
+  mysql-data:
+    driver: local
+  redis-data:
+    driver: local
+
+# 網絡定義
+networks:
+  hula-network:
+    driver: bridge
