@@ -162,14 +162,90 @@ pnpm exec tauri android build || {
 }
 
 # ============================================
-# 7. 列出構建產物
+# 7. 簽名 APK（若存在 unsigned APK 且 keystore 存在）
 # ============================================
+
+sign_apks_if_needed() {
+  # 決定 SDK 路徑（先用環境變數，否則使用預設）
+  SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-$HOME/Android/Sdk}}"
+
+  KEYSTORE_PATH="$REPO_ROOT/src-tauri/keystore.jks"
+  if [ ! -f "$KEYSTORE_PATH" ]; then
+    echo "  -> 找不到 keystore ($KEYSTORE_PATH)，跳過自動簽名。"
+    return 0
+  fi
+
+  # 找到 build-tools 版本（優先 34.0.0，否則挑選最高版本）
+  if [ -d "$SDK_ROOT/build-tools/34.0.0" ]; then
+    BT_VER="34.0.0"
+  else
+    BT_VER=$(ls -1 "$SDK_ROOT/build-tools" 2>/dev/null | sort -V | tail -n1 || true)
+  fi
+  BT_DIR="$SDK_ROOT/build-tools/$BT_VER"
+
+  ZIPALIGN="$BT_DIR/zipalign"
+  APKSIGNER="$BT_DIR/apksigner"
+
+  # 回退到 PATH 中的工具（若絕對路徑不存在）
+  if [ ! -x "$ZIPALIGN" ]; then
+    ZIPALIGN=$(command -v zipalign || true)
+  fi
+  if [ ! -x "$APKSIGNER" ]; then
+    APKSIGNER=$(command -v apksigner || true)
+  fi
+
+  if [ -z "$ZIPALIGN" ] || [ -z "$APKSIGNER" ]; then
+    echo "  -> 無法找到 zipalign 或 apksigner（檢查 Android build-tools 是否安裝）。"
+    return 1
+  fi
+
+  echo "  -> 使用 build-tools: $BT_DIR"
+  echo "  -> zipalign: $ZIPALIGN"
+  echo "  -> apksigner: $APKSIGNER"
+
+  # 尋找 unsigned APK
+  mapfile -t UNSIGNED_APKS < <(find src-tauri -type f -name "*-unsigned.apk" -print 2>/dev/null || true)
+  if [ ${#UNSIGNED_APKS[@]} -eq 0 ]; then
+    echo "  -> 找不到 *-unsigned.apk，若已有簽名 APK 則跳過。"
+    return 0
+  fi
+
+  for APK in "${UNSIGNED_APKS[@]}"; do
+    echo "  -> 發現 unsigned APK: $APK"
+    ALIGNED="${APK%.apk}-aligned.apk"
+    SIGNED="${APK%.apk}-signed.apk"
+
+    echo "     對齊 APK -> $ALIGNED"
+    "$ZIPALIGN" -v -p 4 "$APK" "$ALIGNED" || { echo "     zipalign 失敗：$APK"; return 1; }
+
+    echo "     簽名 APK -> $SIGNED"
+    "$APKSIGNER" sign --ks "$KEYSTORE_PATH" --ks-pass pass:$STOREPASS --key-pass pass:$KEYPASS --out "$SIGNED" "$ALIGNED" || { echo "     apksigner 簽名失敗：$ALIGNED"; return 1; }
+
+    echo "     驗證簽名："
+    "$APKSIGNER" verify --print-certs "$SIGNED" || { echo "     apksigner 驗證失敗：$SIGNED"; return 1; }
+
+    echo "     已生成簽名 APK: $SIGNED"
+  done
+
+  return 0
+}
+
 echo ""
 echo "=========================================="
-echo "Android 構建完成！以下是構建產物："
+echo "Android 構建完成！現在檢查是否需自動對齊與簽名 APK..."
 echo "=========================================="
+
+# 嘗試自動簽名（若 keystore 可用且有 unsigned apk）
+if sign_apks_if_needed; then
+  echo "自動簽名步驟完成（若有需要並成功）。"
+else
+  echo "自動簽名步驟發生錯誤，請手動簽名或檢查 build-tools。"
+fi
+
+echo ""
+echo "構建產物列表："
 find src-tauri -type f \( -name "*.apk" -o -name "*.aab" \) -print || true
 
 echo ""
 echo "構建腳本執行完成。"
-echo "若需要簽名 APK 或只輸出特定 ABI，請告知。"
+echo "若需要調整簽名 keystore 或只輸出特定 ABI，請告知。"
