@@ -113,43 +113,58 @@ fi
 # ============================================
 # 5. 產生測試用 keystore（若不存在）
 # ============================================
-echo "6) 產生測試用 keystore（若不存在）..."
-KEYSTORE="$REPO_ROOT/src-tauri/keystore.jks"
-STOREPASS="password"
-KEYPASS="password"
-ALIAS="hula_test_key"
+echo "6) 配置簽名 keystore..."
 
-if [ -f "$KEYSTORE" ]; then
-  echo "  -> keystore 已存在: $KEYSTORE"
+# 優先使用 GitHub Secrets 中的證書
+if [ -n "${KEYSTORE_BASE64:-}" ]; then
+  echo "  -> 檢測到 GitHub Secrets 中的證書，進行解碼..."
+  KEYSTORE="$REPO_ROOT/src-tauri/release.keystore"
+  echo "$KEYSTORE_BASE64" | base64 -d > "$KEYSTORE"
+  
+  # 從環境變數讀取證書信息
+  STOREPASS="${KEYSTORE_PASSWORD:-bp@2025secure}"
+  KEYPASS="${KEY_PASSWORD:-bp@2025secure}"
+  ALIAS="${KEY_ALIAS:-bp-key}"
+  
+  echo "  -> 已從 GitHub Secrets 解碼證書到: $KEYSTORE"
 else
-  mkdir -p "$(dirname "$KEYSTORE")"
-  echo "  -> 使用 keytool 生成 keystore: $KEYSTORE"
-  keytool -genkeypair -v \
-    -keystore "$KEYSTORE" \
-    -storepass "$STOREPASS" \
-    -keypass "$KEYPASS" \
-    -alias "$ALIAS" \
-    -keyalg RSA -keysize 2048 -validity 10000 \
-    -dname "CN=Test, OU=Dev, O=Dev, L=City, ST=State, C=CN" || {
-    echo "  -> keytool 執行失敗，請確認已安裝 JDK 並可使用 keytool。"
-    exit 1
-  }
-  echo "  -> keystore 生成完成。"
+  echo "  -> 未檢測到 KEYSTORE_BASE64 環境變數，使用本地測試證書..."
+  KEYSTORE="$REPO_ROOT/src-tauri/keystore.jks"
+  STOREPASS="password"
+  KEYPASS="password"
+  ALIAS="hula_test_key"
+
+  if [ -f "$KEYSTORE" ]; then
+    echo "  -> 測試 keystore 已存在: $KEYSTORE"
+  else
+    mkdir -p "$(dirname "$KEYSTORE")"
+    echo "  -> 使用 keytool 生成測試 keystore: $KEYSTORE"
+    keytool -genkeypair -v \
+      -keystore "$KEYSTORE" \
+      -storepass "$STOREPASS" \
+      -keypass "$KEYPASS" \
+      -alias "$ALIAS" \
+      -keyalg RSA -keysize 2048 -validity 10000 \
+      -dname "CN=Test, OU=Dev, O=Dev, L=City, ST=State, C=CN" || {
+      echo "  -> keytool 執行失敗，請確認已安裝 JDK 並可使用 keytool。"
+      exit 1
+    }
+    echo "  -> 測試 keystore 生成完成。"
+  fi
 fi
+
 
 # 為 Gradle 建立 keystore.properties
 KS_PROPS="$REPO_ROOT/src-tauri/keystore.properties"
-if [ ! -f "$KS_PROPS" ]; then
-  cat > "$KS_PROPS" <<EOF
-storeFile=keystore.jks
+# 總是重新生成 keystore.properties 以確保使用最新配置
+KEYSTORE_FILENAME="$(basename "$KEYSTORE")"
+cat > "$KS_PROPS" <<EOF
+storeFile=$KEYSTORE_FILENAME
 storePassword=$STOREPASS
 keyAlias=$ALIAS
 keyPassword=$KEYPASS
 EOF
-  echo "7) 已建立 $KS_PROPS"
-else
-  echo "7) $KS_PROPS 已存在，保留原檔。"
-fi
+echo "7) 已更新 $KS_PROPS (使用 $KEYSTORE_FILENAME)"
 
 # ============================================
 # 6. 執行 Android 構建

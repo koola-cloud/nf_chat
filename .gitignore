@@ -41,3 +41,6 @@ GEMINI.md
 
 src/typings/components.pc.d.ts
 src/typings/components.mobile.d.ts
+bp-release.keystore
+*.keystore
+bp-release.keystore.base64
