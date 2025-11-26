@@ -1,19 +1,19 @@
 database:
-  sqlite_file: db.sqlite
+	sqlite_file: db.sqlite
 backend:
-  base_url: https://hulaspark.com/api
+	base_url: https://cn.chat.nfzs.live/api
 active_config: local
 
 youdao:
-  app_key: ''
-  app_secret: ''
+	app_key: ''
+	app_secret: ''
 tencent:
-  api_key: ''
-  secret_id: ''
-  map_key: ''
+	api_key: ''
+	secret_id: ''
+	map_key: ''
 
 ice_server:
-  urls:
-    - ''
-  username: ''
-  credential: ''
+	urls:
+		- ''
+	username: ''
+	credential: ''

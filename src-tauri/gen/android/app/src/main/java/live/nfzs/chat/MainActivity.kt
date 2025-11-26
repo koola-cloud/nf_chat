@@ -1,4 +1,4 @@
-﻿package com.hula.app
+package live.nfzs.chat
 
 import android.Manifest
 import android.os.Bundle

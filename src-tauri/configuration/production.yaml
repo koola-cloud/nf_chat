@@ -1,8 +1,8 @@
 database:
   sqlite_file: db.sqlite
 backend:
-  base_url: https://hulaspark.com/api
-  ws_url: wss://hulaspark.com/api/ws/ws
+  base_url: https://cn.chat.nfzs.live/api
+  ws_url: wss://cn.chat.nfzs.live/api/ws/ws
 
 youdao:
   app_key: ''

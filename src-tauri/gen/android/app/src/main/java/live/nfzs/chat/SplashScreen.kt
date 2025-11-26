@@ -1,4 +1,4 @@
-﻿package com.hula.app
+package live.nfzs.chat
 
 import android.app.Activity
 import android.view.View
