@@ -184,9 +184,13 @@ sign_apks_if_needed() {
   # 決定 SDK 路徑（先用環境變數，否則使用預設）
   SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-$HOME/Android/Sdk}}"
 
-  KEYSTORE_PATH="$REPO_ROOT/src-tauri/keystore.jks"
-  if [ ! -f "$KEYSTORE_PATH" ]; then
-    echo "  -> 找不到 keystore ($KEYSTORE_PATH)，跳過自動簽名。"
+  # 使用與前面配置一致的 KEYSTORE 路徑和密碼
+  SIGN_KEYSTORE="$KEYSTORE"
+  SIGN_STOREPASS="$STOREPASS"
+  SIGN_KEYPASS="$KEYPASS"
+  
+  if [ ! -f "$SIGN_KEYSTORE" ]; then
+    echo "  -> 找不到 keystore ($SIGN_KEYSTORE)，跳過自動簽名。"
     return 0
   fi
 
@@ -234,7 +238,7 @@ sign_apks_if_needed() {
     "$ZIPALIGN" -v -p 4 "$APK" "$ALIGNED" || { echo "     zipalign 失敗：$APK"; return 1; }
 
     echo "     簽名 APK -> $SIGNED"
-    "$APKSIGNER" sign --ks "$KEYSTORE_PATH" --ks-pass pass:$STOREPASS --key-pass pass:$KEYPASS --out "$SIGNED" "$ALIGNED" || { echo "     apksigner 簽名失敗：$ALIGNED"; return 1; }
+    "$APKSIGNER" sign --ks "$SIGN_KEYSTORE" --ks-pass pass:$SIGN_STOREPASS --key-pass pass:$SIGN_KEYPASS --out "$SIGNED" "$ALIGNED" || { echo "     apksigner 簽名失敗：$ALIGNED"; return 1; }
 
     echo "     驗證簽名："
     "$APKSIGNER" verify --print-certs "$SIGNED" || { echo "     apksigner 驗證失敗：$SIGNED"; return 1; }
@@ -260,6 +264,114 @@ fi
 echo ""
 echo "構建產物列表："
 find src-tauri -type f \( -name "*.apk" -o -name "*.aab" \) -print || true
+
+# ============================================
+# 8. 上傳到 GitHub Release
+# ============================================
+upload_to_github_release() {
+  echo ""
+  echo "=========================================="
+  echo "上傳 APK 到 GitHub Release (koola-cloud/bp-app tag: test)"
+  echo "=========================================="
+
+  # 檢查是否有 GitHub Token
+  if [ -z "${GITHUB_TOKEN:-}" ]; then
+    echo "  -> 未檢測到 GITHUB_TOKEN 環境變數，跳過上傳到 GitHub Release。"
+    echo "  -> 提示：在 CI 環境中設置 GITHUB_TOKEN 以啟用自動上傳。"
+    return 0
+  fi
+
+  # 檢查是否安裝 gh CLI
+  if ! command -v gh >/dev/null 2>&1; then
+    echo "  -> GitHub CLI (gh) 未安裝，嘗試安裝..."
+    if command -v apt >/dev/null 2>&1; then
+      curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
+      sudo chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg
+      echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
+      sudo apt update
+      sudo apt install gh -y
+    else
+      echo "  -> 無法自動安裝 gh CLI，請手動安裝：https://cli.github.com/"
+      return 1
+    fi
+  fi
+
+  # 配置 gh 使用 GITHUB_TOKEN
+  export GH_TOKEN="$GITHUB_TOKEN"
+
+  # 目標倉庫和標籤
+  TARGET_REPO="koola-cloud/bp-app"
+  TAG_NAME="test"
+  RELEASE_NAME="Build test"
+
+  echo "  -> 目標倉庫: $TARGET_REPO"
+  echo "  -> 標籤: $TAG_NAME"
+  echo "  -> Release 名稱: $RELEASE_NAME"
+
+  # 查找簽名的 APK
+  SIGNED_APK=$(find src-tauri -type f -name "*-signed.apk" -print -quit 2>/dev/null || true)
+  
+  if [ -z "$SIGNED_APK" ]; then
+    echo "  -> 未找到簽名的 APK，查找未簽名的 APK..."
+    SIGNED_APK=$(find src-tauri -type f -name "*-unsigned.apk" -print -quit 2>/dev/null || true)
+  fi
+
+  if [ -z "$SIGNED_APK" ]; then
+    echo "  -> 錯誤：未找到任何 APK 文件"
+    return 1
+  fi
+
+  echo "  -> 找到 APK: $SIGNED_APK"
+  
+  # 生成新的文件名（包含時間戳）
+  TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
+  APK_FILENAME="bp-test-${TIMESTAMP}.apk"
+  
+  echo "  -> 上傳文件名: $APK_FILENAME"
+
+  # 檢查 Release 是否存在
+  if gh release view "$TAG_NAME" --repo "$TARGET_REPO" >/dev/null 2>&1; then
+    echo "  -> Release '$TAG_NAME' 已存在，刪除舊資產並上傳新文件..."
+    # 刪除舊的 APK 文件（如果存在）
+    gh release delete-asset "$TAG_NAME" "bp-test-*.apk" --repo "$TARGET_REPO" --yes 2>/dev/null || true
+    # 上傳新文件
+    gh release upload "$TAG_NAME" "$SIGNED_APK#$APK_FILENAME" --repo "$TARGET_REPO" --clobber
+  else
+    echo "  -> Release '$TAG_NAME' 不存在，創建新的 Release..."
+    # 創建新的 Release
+    gh release create "$TAG_NAME" "$SIGNED_APK#$APK_FILENAME" \
+      --repo "$TARGET_REPO" \
+      --title "$RELEASE_NAME" \
+      --notes "自動構建的測試版本 APK
+
+構建時間: $(date '+%Y-%m-%d %H:%M:%S')
+構建腳本: scripts/android_build_test.sh
+
+## 下載
+- APK: $APK_FILENAME
+
+## 安裝說明
+1. 下載 APK 文件
+2. 在 Android 設備上啟用「未知來源」安裝
+3. 安裝 APK
+
+**注意**: 這是測試版本，僅用於內部測試。" \
+      --prerelease
+  fi
+
+  if [ $? -eq 0 ]; then
+    echo "  -> ✓ 成功上傳到 GitHub Release!"
+    echo "  -> Release URL: https://github.com/$TARGET_REPO/releases/tag/$TAG_NAME"
+  else
+    echo "  -> ✗ 上傳失敗，請檢查錯誤信息"
+    return 1
+  fi
+
+  return 0
+}
+
+# 執行上傳（如果有 GITHUB_TOKEN）
+upload_to_github_release || true
 
 echo ""
 echo "構建腳本執行完成。"

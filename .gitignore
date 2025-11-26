@@ -44,3 +44,4 @@ src/typings/components.mobile.d.ts
 bp-release.keystore
 *.keystore
 bp-release.keystore.base64
+keystore.properties
