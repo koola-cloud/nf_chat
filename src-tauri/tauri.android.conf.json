@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "HuLa",
+  "productName": "BP",
   "version": "3.0.4",
   "identifier": "live.nfzs.chat",
   "build": {
