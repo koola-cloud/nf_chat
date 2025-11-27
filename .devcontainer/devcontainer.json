@@ -1,0 +1,38 @@
+{
+  "name": "NF Chat Development",
+  "image": "mcr.microsoft.com/devcontainers/universal:2",
+  
+  "features": {
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "lts"
+    },
+    "ghcr.io/devcontainers/features/rust:1": {
+      "version": "latest"
+    }
+  },
+
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "github.copilot.chat.terminalShellIntegration": true,
+        "github.copilot.chat.runCommand.enabled": true,
+        "github.copilot.chat.runCommand.requireApproval": "onlySSH"
+      },
+      "extensions": [
+        "GitHub.copilot",
+        "GitHub.copilot-chat"
+      ]
+    }
+  },
+
+  "postCreateCommand": "pnpm install || npm install -g pnpm && pnpm install",
+
+  "remoteEnv": {
+    "ANDROID_HOME": "${containerEnv:HOME}/Android/Sdk",
+    "ANDROID_SDK_ROOT": "${containerEnv:HOME}/Android/Sdk"
+  },
+
+  "mounts": [
+    "source=${localEnv:HOME}${localEnv:USERPROFILE}/.android,target=/home/codespace/.android,type=bind,consistency=cached"
+  ]
+}
