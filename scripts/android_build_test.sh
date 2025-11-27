@@ -96,24 +96,31 @@ if ! pnpm install --silent; then
 fi
 
 # ============================================
-# 4. 初始化 Tauri Android 環境
+# 4. 清理旧的 Android 生成文件并重新初始化
 # ============================================
-echo "4) 初始化 Tauri Android 環境（pnpm exec tauri android init）..."
+echo "4) 清理旧的 Android 生成文件..."
+# 删除旧的 gen/android 目录以确保图标等资源被重新生成
+if [ -d "$REPO_ROOT/src-tauri/gen/android" ]; then
+  echo "  -> 删除 src-tauri/gen/android 目录..."
+  rm -rf "$REPO_ROOT/src-tauri/gen/android"
+fi
+
+echo "5) 初始化 Tauri Android 環境（pnpm exec tauri android init）..."
 pnpm exec tauri android init || true
 
 GWPROPS="src-tauri/gen/android/gradle/wrapper/gradle-wrapper.properties"
 if [ -f "$GWPROPS" ]; then
-  echo "5) 確認 gradle wrapper 使用鏡像源: $GWPROPS"
+  echo "6) 確認 gradle wrapper 使用鏡像源: $GWPROPS"
   sed -E -i.bak 's#distributionUrl=.*#distributionUrl=https\\://mirrors.cloud.tencent.com/gradle/gradle-8.14.3-bin.zip#g' "$GWPROPS" || true
   echo "  -> 已更新 $GWPROPS"
 else
-  echo "5) 找不到 $GWPROPS，跳過 gradle wrapper 替換。"
+  echo "6) 找不到 $GWPROPS，跳過 gradle wrapper 替換。"
 fi
 
 # ============================================
 # 5. 產生測試用 keystore（若不存在）
 # ============================================
-echo "6) 配置簽名 keystore..."
+echo "7) 配置簽名 keystore..."
 
 # 優先使用 GitHub Secrets 中的證書
 if [ -n "${KEYSTORE_BASE64:-}" ]; then
@@ -164,12 +171,12 @@ storePassword=$STOREPASS
 keyAlias=$ALIAS
 keyPassword=$KEYPASS
 EOF
-echo "7) 已更新 $KS_PROPS (使用 $KEYSTORE_FILENAME)"
+echo "8) 已更新 $KS_PROPS (使用 $KEYSTORE_FILENAME)"
 
 # ============================================
 # 6. 執行 Android 構建
 # ============================================
-echo "8) 執行 Android 構建（pnpm exec tauri android build）..."
+echo "9) 執行 Android 構建（pnpm exec tauri android build）..."
 echo "   注意：這個步驟會花費數分鐘到十多分鐘，並需要可以連網下載 Gradle／依賴..."
 pnpm exec tauri android build || {
   echo "pnpm exec tauri android build 執行失敗，請檢查上方輸出訊息。"

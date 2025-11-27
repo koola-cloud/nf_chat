@@ -22,6 +22,7 @@ dist-ssr
 .idea
 
 src-tauri/target
+src-tauri/gen/
 
 .history/
 
